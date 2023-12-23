@@ -30,7 +30,7 @@ class FileReader:
             n_planes, freeze_time = map(int, f.readline().split())
             airland = Airland(airland_id, n_planes, freeze_time)
             
-            for plane_i in range(1, n_planes):
+            for plane_i in range(n_planes):
                 self.__read_plane_profile(f, plane_i, airland)
                 self.__read_sep_times(f, n_planes, plane_i, airland)
         
