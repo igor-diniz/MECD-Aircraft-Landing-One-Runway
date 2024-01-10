@@ -9,27 +9,22 @@ class Airland:
         self.planes = []
         self.Gst = nx.Graph()       # Gst - graph of separated times between landings
         self.Gst.add_nodes_from(range(1, n_planes))
-    
 
     def register_plane(self, plane):
         self.planes.append(plane)
 
-
     def register_sep_time(self, plane_id1, plane_id2, sep_time):
         self.Gst.add_edge(plane_id1, plane_id2, sep_time=sep_time)
-
 
     def get_sep_time(self, plane_id1, plane_id2):
         return self.Gst[plane_id1][plane_id2]["sep_time"]
 
-
     def get_all_sep_times(self):
         return self.Gst.edges.data()
 
-    
     def get_planes(self):
         return self.planes
-    
+
     def solve_linear_programming(self):
         # Create a linear programming problem
         prob = LpProblem("Airland_Problem", LpMinimize)
@@ -37,13 +32,20 @@ class Airland:
         # Define decision variables
         x = {(i, j): LpVariable(name=f"x_{i}_{j}", cat='Binary') for i in range(1, self.n_planes + 1) for j in range(1, self.n_planes + 1)}
 
+        # Define landing time variables
+        landing_times = {i: LpVariable(name=f"landing_time_{i}", lowBound=0) for i in range(1, self.n_planes + 1)}
+
         # Objective function
         prob += lpSum(x[i, j] for i in range(1, self.n_planes + 1) for j in range(1, self.n_planes + 1)), "Objective"
 
         # Constraints
+        # Constraints
         for i in range(1, self.n_planes + 1):
-            prob += lpSum(x[i, j] for j in range(1, self.n_planes + 1)) == 1, f"Plane_{i}_Once"
-            prob += lpSum(x[j, i] for j in range(1, self.n_planes + 1)) == 1, f"Plane_{i}_Once1"
+            prob += lpSum(x[i, j] for j in range(1, self.n_planes + 1)) == 1, f"Plane_{i}_Outgoing_Once"
+            prob += lpSum(x[j, i] for j in range(1, self.n_planes + 1)) == 1, f"Plane_{i}_Incoming_Once"
+            prob += landing_times[i] >= self.planes[i-1].E, f"Landing_Time_Lower_Bound_{i}"
+            prob += landing_times[i] <= self.planes[i-1].L, f"Landing_Time_Upper_Bound_{i}"
+
 
         for i in range(1, self.n_planes + 1):
             for j in range(1, self.n_planes + 1):
@@ -53,12 +55,13 @@ class Airland:
         # Solve the problem
         prob.solve()
 
+        # Store landing times in Plane instances
+        for i in range(1, self.n_planes + 1):
+            self.planes[i-1].landing_time = landing_times[i].value()
+
         # Print the results
         print("Status:", prob.status)
         print("Objective Value:", prob.objective.value())
 
-        for i in range(1, self.n_planes + 1):
-            for j in range(1, self.n_planes + 1):
-                if x[i, j].value() == 1:
-                    print(f"Plane {i} lands before Plane {j}")
-
+        for plane in sorted(self.planes, key=lambda p: p.landing_time):
+            print(f"Plane {plane.id} lands at time {plane.landing_time} on runway")

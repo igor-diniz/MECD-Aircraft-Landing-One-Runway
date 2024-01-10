@@ -45,4 +45,4 @@ run:
 
 run-pulp:
 	@echo "Running project..."
-	$(VENV_ACTIVATE) && $(PYTHON) pulp.py
+	$(VENV_ACTIVATE) && $(PYTHON) pulp_solver.py

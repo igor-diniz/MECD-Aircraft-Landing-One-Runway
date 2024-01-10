@@ -11,3 +11,4 @@ class Plane:
     L: float
     PCb: float
     PCa: float
+    landing_time: float = 0.0
