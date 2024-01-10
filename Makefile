@@ -39,6 +39,10 @@ clean:
 	@echo "Cleaning up..."
 	$(RM) $(VENV)
 
-run: venv
+run:
 	@echo "Running project..."
 	$(VENV_ACTIVATE) && $(PYTHON) main.py
+
+run-pulp:
+	@echo "Running project..."
+	$(VENV_ACTIVATE) && $(PYTHON) pulp.py
