@@ -94,16 +94,16 @@ def solve_MIP_airland(airland):
             plane.actual_land_time = x[plane.id].solution_value()
         
         P.sort(key = lambda x: x.actual_land_time)
-        print()
         print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
 
     else:
         print('The problem does not have neither optimal nor feasible solution.')
+    
+    print()
 
 
 if __name__ == "__main__":
     airlands = setup_airlands()
 
-    # Just a showcase with the airland 1
-    airland = airlands[3]
-    solve_MIP_airland(airland)
+    for airland in airlands.values():
+        solve_MIP_airland(airland)
