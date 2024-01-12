@@ -13,8 +13,8 @@ class FileReader:
 
 
     def __read_sep_times(self, file, n_planes, plane_id, airland):
-        n = 1
-        while n <= n_planes:
+        n = 0
+        while n < n_planes:
             line_times = file.readline().split()
 
             for plane_j, val in enumerate(line_times):
@@ -30,9 +30,9 @@ class FileReader:
             n_planes, freeze_time = map(int, f.readline().split())
             airland = Airland(airland_id, n_planes, freeze_time)
             
-            for plane_i in range(n_planes):
-                self.__read_plane_profile(f, plane_i, airland)
-                self.__read_sep_times(f, n_planes, plane_i, airland)
+            for plane_id in range(n_planes):
+                self.__read_plane_profile(f, plane_id, airland)
+                self.__read_sep_times(f, n_planes, plane_id, airland)
         
         return airland
 
