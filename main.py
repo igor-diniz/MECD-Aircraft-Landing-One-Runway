@@ -2,6 +2,7 @@ from file_reader import FileReader
 import os
 import re
 from ortools.linear_solver import pywraplp
+from ortools.sat.python import cp_model
 
 
 def setup_airlands():
@@ -102,8 +103,58 @@ def solve_MIP_airland(airland):
     print()
 
 
+def solve_CP_airland(airland):
+    model = cp_model.CpModel()
+    P = airland.get_planes()  # Set of planes
+
+    ############ Variables ###########
+    # Actual landing time for each plane
+    x = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
+
+    # All landing times must be different of each other
+    model.AddAllDifferent(x)
+
+    # Difference to the target time from the earlier time for each plane
+    alpha = [model.NewIntVar(0, plane.T - plane.E, f'alpha_{plane.id}') for plane in P]
+
+    # Difference to the target time from the latest time for each plane
+    beta = [model.NewIntVar(0, plane.L - plane.T, f'beta_{plane.id}') for plane in P]
+
+    # Constraints
+    for plane in P:
+        model.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
+        model.Add(alpha[plane.id] >= plane.T - x[plane.id])
+        model.Add(beta[plane.id] >= x[plane.id] - plane.T)
+        model.Add(x[plane.id] >= plane.A + airland.freeze_time)
+
+    # Objective Function
+    objective_expr = model.NewIntVar(0, 0, 'objective_expr')  # Create a linear expression
+    for plane in P:
+        objective_expr += alpha[plane.id] * plane.PCb
+        objective_expr += beta[plane.id] * plane.PCa
+
+    model.Minimize(objective_expr)
+
+    # Solve the problem
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
+    # Display the results
+    if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
+        print('Objective Value =', solver.ObjectiveValue())
+        for plane in P:
+            plane.actual_land_time = x[plane.id].solution_value()
+        
+        P.sort(key = lambda x: x.actual_land_time)
+        print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
+
+    else:
+        print('The problem does not have neither optimal nor feasible solution.')
+    
+    print()
+
 if __name__ == "__main__":
     airlands = setup_airlands()
 
     for airland in airlands.values():
-        solve_MIP_airland(airland)
+        solve_CP_airland(airland)
