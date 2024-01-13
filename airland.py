@@ -26,51 +26,55 @@ class Airland:
     def get_planes(self):
         return self.planes
 
-    def solve_linear_programming(self):
+    def solve_linear_programming(self, n_runways=1):
         # Create a linear programming problem
         prob = LpProblem("Airland_Problem", LpMinimize)
+        
+        # Update the range for runways
+        runways_range = range(1, n_runways + 1)
+
+        # Create decision variables
         x = {(i, t, r): LpVariable(name=f"x_{i}_{t}_{r}", cat='Binary') 
-                for i in range(1, self.n_planes + 1) 
-                for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) 
-                for r in range(1, self.n_planes + 1)}
+             for i in range(1, self.n_planes + 1) 
+             for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) 
+             for r in runways_range}
 
         # Objective function
         prob += lpSum(self.planes[i-1].PCb * x[i, t, r] if t < self.planes[i-1].T else self.planes[i-1].PCa * x[i, t, r]
-                        for i in range(1, self.n_planes + 1) 
-                        for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) 
-                        for r in range(1, self.n_planes + 1)), "Objective"
+                      for i in range(1, self.n_planes + 1) 
+                      for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) 
+                      for r in runways_range), "Objective"
 
-        # Define landing time variables
-        landing_times = {i: LpVariable(name=f"landing_time_{i}", lowBound=0) 
-                    for i in range(1, self.n_planes + 1)}
 
         # Constraints
-        # Constraint 1: Cada avião deve pousar exatamente uma vez em uma pista de pouso dentro da janela de tempo permitida.
+        # Constraint 1: Each plane must land exactly once within its time window
         for i in range(1, self.n_planes + 1):
-            prob += lpSum(x[i, t, r] for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) for r in range(1, self.n_planes + 1)) == 1
+            prob += lpSum(x[i, t, r] for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1) for r in runways_range) == 1
 
-        # Constraint 2: Dois aviões diferentes não podem pousar na mesma pista de pouso ao mesmo tempo, nem em um período de tempo muito próximo (definido por S) para evitar conflitos de segurança.
+        # Constraint 2: Avoid conflicts between different planes on the same runway and overlapping time.
         for i in range(1, self.n_planes + 1):
             for j in range(i + 1, self.n_planes + 1):
                 for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1):
-                    for r in range(1, self.n_planes + 1):
-                        for s in range(1, self.n_planes + 1):
+                    for r in runways_range:
+                        for s in runways_range:
                             if (t <= self.planes[j-1].L and t <= self.planes[j-1].E + self.s) and (r == s) and (j != s):
                                 try:
                                     prob += x[i, t, r] + x[j, t, s] <= 1
                                 except KeyError:
                                     pass
-        # Constraint 3: Dois aviões diferentes não podem pousar na mesma pista de pouso em um período de tempo muito próximo (definido por S), mesmo se forem em horários diferentes, para garantir espaço adequado entre as operações de pouso.
+
+        # Constraint 3: Avoid conflicts between different planes on different runways and overlapping time.
         for i in range(1, self.n_planes + 1):
             for j in range(i + 1, self.n_planes + 1):
                 for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L) + 1):
-                    for r in range(1, self.n_planes + 1):
-                        for u in range(1, self.n_planes + 1):
+                    for r in runways_range:
+                        for u in runways_range:
                             if (t <= self.planes[j-1].L and t <= self.planes[j-1].E + self.s) and (r != u):
                                 try:
                                    prob += x[i, t, r] + x[j, t, u] <= 1
                                 except KeyError:
                                     pass
+
         # Solve the problem
         prob.solve()
 
@@ -80,7 +84,7 @@ class Airland:
 
         for i in range(1, self.n_planes + 1):
             for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L + 1)):
-                for r in range(1, self.n_planes + 1):
+                for r in runways_range:
                     if x[i, t, r].value() == 1:
                         self.planes[i-1].landing_time = t
                         print(f"Plane {i} lands at time {t} on runway {r}")
