@@ -3,6 +3,7 @@ import os
 import re
 import math
 from ortools.linear_solver import pywraplp
+from ortools.constraint_solver import pywrapcp
 from ortools.sat.python import cp_model
 
 
@@ -111,7 +112,6 @@ def solve_CP_airland(airland):
     ############ Variables ###########
     # Actual landing time for each plane
     t = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
-    model.AddAllDifferent(t)
 
     # Cost of each landing time for each arrived plane
     cost = [model.NewIntVar(0, cp_model.INT32_MAX, f'cost_{plane.id}') for plane in P]
@@ -119,7 +119,6 @@ def solve_CP_airland(airland):
     # If plane i lands before plane j for each plane
     lands_before = [[model.NewBoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
-    before_target = [model.NewBoolVar(f'bt_{plane.id}') for plane in P]
 
     # Cases where obviously planes_i lands before planes_j without waiting sep time
     W = [(plane_i, plane_j) for plane_i in P for plane_j in P
@@ -153,15 +152,18 @@ def solve_CP_airland(airland):
     
     # Calculate costs based on landing time
     for plane in P:
-        model.Add(cost[plane.id] == plane.PCb * (plane.T - t[plane.id])).OnlyEnforceIf(before_target[plane.id])
-        model.Add(cost[plane.id] == plane.PCa * (t[plane.id] - plane.T)).OnlyEnforceIf(before_target[plane.id].Not())
+        b = model.NewBoolVar(f"before_target_{plane.id}")
+        a = model.NewBoolVar(f"after_target_{plane.id}")
+        model.AddBoolXOr(b, a)
+        model.Add(cost[plane.id] == plane.PCb * (plane.T - t[plane.id])).OnlyEnforceIf(b)  
+        model.Add(cost[plane.id] == plane.PCa * (t[plane.id] - plane.T)).OnlyEnforceIf(a)
     
     # Add mutual exclusive constraint for landing before
     # plane_i lands before plane j XOR the other way around 
     for plane_i, plane_j in U:
-        if plane_i.id < plane_j.id:
-            model.AddImplication(lands_before[plane_j.id][plane_i.id].Not(), lands_before[plane_i.id][plane_j.id])
-
+        if plane_i.id != plane_j.id:
+            model.AddBoolXOr(lands_before[plane_i.id][plane_j.id], lands_before[plane_j.id][plane_i.id])
+    
     # Assert separation time constraint
     for plane_i, plane_j in U:
         if plane_i.id != plane_j.id:
@@ -179,10 +181,10 @@ def solve_CP_airland(airland):
     status = solver.Solve(model)
 
     # Display the results
-    if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
+    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         print('Objective Value =', solver.ObjectiveValue())
         for plane in P:
-            plane.actual_land_time = t[plane.id].solution_value()
+            plane.actual_land_time = solver.Value(t[plane.id])
         
         P.sort(key = lambda x: x.actual_land_time)
         print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
@@ -196,4 +198,7 @@ if __name__ == "__main__":
     airlands = setup_airlands()
 
     for airland in airlands.values():
+        print("###### MIP ######")
+        solve_MIP_airland(airland)
+        print("###### CP ######")
         solve_CP_airland(airland)
