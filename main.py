@@ -6,6 +6,7 @@ from ortools.sat.python import cp_model
 
 
 def setup_airlands():
+    """ Reads and setup all airlands and stores them as dictionary """
     workdir = os.getcwd()
     datasets_dir = os.path.join(workdir, "datasets")
     airlands_files = os.listdir(datasets_dir)
@@ -36,6 +37,8 @@ def solve_MIP_airland(airland):
     lands_before = [[solver.BoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
 
+
+    ############ Preprocessing ###########
     # Cases where obviously planes_i lands before planes_j without waiting sep time
     W = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and plane_i.L < plane_j.E and
@@ -55,6 +58,8 @@ def solve_MIP_airland(airland):
     for plane_i, plane_j in V:
         solver.Add(x[plane_j.id] >= x[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
 
+
+    ####### To solver deal ########
     # Cases where landing time window are overlaped
     U = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and
@@ -66,12 +71,14 @@ def solve_MIP_airland(airland):
         solver.Add(x[plane_j.id] >= x[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) * lands_before[plane_i.id][plane_j.id] - 
                    (plane_i.L - plane_j.E) * lands_before[plane_j.id][plane_i.id])
 
-    # Constraints
+    # Complementary Constraints
     for plane in P:
         solver.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
         solver.Add(alpha[plane.id] >= plane.T - x[plane.id])
         solver.Add(beta[plane.id] >= x[plane.id] - plane.T)
-        #solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
+
+        # This constraint is referrenced in the problem, but makes airland 5 and 6 unfeasible if active
+        # solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
 
     for plane_i in P:
         for plane_j in P:
@@ -119,6 +126,8 @@ def solve_CP_airland(airland):
     lands_before = [[model.NewBoolVar(f'lb_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
 
+
+    ############ Preprocessing ###########
     # Cases where obviously planes_i lands before planes_j without waiting sep time
     W = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and plane_i.L < plane_j.E and
@@ -143,19 +152,13 @@ def solve_CP_airland(airland):
     for plane_i, plane_j in V:
         model.Add(t[plane_j.id] >= t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
 
+
+    ####### To solver deal ########
     # Cases where landing time window are overlaped
     U = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and
          (plane_j.E <= plane_i.E <= plane_j.L or plane_j.E <= plane_i.L <= plane_j.L or
           plane_i.E <= plane_j.E <= plane_i.L or plane_i.E <= plane_j.L <= plane_i.L)]
-    
-    # Calculate costs based on landing time
-    for plane in P:
-        b = model.NewBoolVar(f"before_target_{plane.id}")
-        a = model.NewBoolVar(f"after_target_{plane.id}")
-        model.AddBoolXOr(b, a)
-        model.Add(cost[plane.id] == plane.PCb * (plane.T - t[plane.id])).OnlyEnforceIf(b)  
-        model.Add(cost[plane.id] == plane.PCa * (t[plane.id] - plane.T)).OnlyEnforceIf(a)
     
     # Add mutual exclusive constraint for landing before
     # plane_i lands before plane j XOR the other way around 
@@ -169,7 +172,18 @@ def solve_CP_airland(airland):
             model.Add(t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) <= t[plane_j.id]).\
                 OnlyEnforceIf(lands_before[plane_i.id][plane_j.id])
             model.Add(t[plane_j.id] + airland.get_sep_time(plane_j.id, plane_i.id) <= t[plane_i.id]).\
-                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])          
+                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])
+
+
+    # Calculate costs based on landing time for each plane
+    for plane in P:
+        diff1 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff1')
+        model.AddMaxEquality(diff1, [0, plane.T - t[plane.id]])
+
+        diff2 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff2')
+        model.AddMaxEquality(diff2, [0, t[plane.id] - plane.T])
+
+        model.Add(cost[plane.id] == plane.PCb * diff1 + plane.PCa * diff2)        
 
     # Objective Function
     model.Minimize(sum(cost))
