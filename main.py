@@ -70,7 +70,9 @@ def solve_MIP_airland(airland):
         solver.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
         solver.Add(alpha[plane.id] >= plane.T - x[plane.id])
         solver.Add(beta[plane.id] >= x[plane.id] - plane.T)
-        solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
+
+        # This constraint could be necessary, but makes problem 5 and 6 unfeasible
+        #solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
 
     for plane_i in P:
         for plane_j in P:
