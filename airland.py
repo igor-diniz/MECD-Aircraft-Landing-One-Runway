@@ -6,7 +6,7 @@ class Airland:
         self.n_planes = n_planes
         self.freeze_time = freeze_time
         self.planes = []
-        self.sep_times = np.zeros((n_planes, n_planes))
+        self.sep_times = np.zeros((n_planes, n_planes), dtype=int)
     
 
     def register_plane(self, plane):

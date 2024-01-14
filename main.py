@@ -111,14 +111,33 @@ def solve_CP_airland(airland):
     # Actual landing time for each plane
     x = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
 
-    # All landing times must be different of each other
-    model.AddAllDifferent(x)
-
     # Difference to the target time from the earlier time for each plane
     alpha = [model.NewIntVar(0, plane.T - plane.E, f'alpha_{plane.id}') for plane in P]
 
     # Difference to the target time from the latest time for each plane
     beta = [model.NewIntVar(0, plane.L - plane.T, f'beta_{plane.id}') for plane in P]
+
+    # If plane i lands immediately before plane j for each plane
+    lands_immed_before = [[model.NewBoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
+             for plane_i in P]
+    
+    # Each plane, except the first one, has only one antecedent
+    for plane_b in P:
+        model.AddAtMostOne(lands_immed_before[plane_b.id][plane_a.id] for plane_a in P if plane_a.id != plane_b.id)
+
+    #
+    for plane_b in P:
+        for plane_a in P:
+            if plane_b != plane_a and plane_b.E > plane_a.L:
+                model.Add(lands_immed_before[plane_b.id][plane_a.id] == 0)
+
+
+    # Add restriction to wait sep time for sequence of planes
+    for plane_b in P:
+        for plane_a in P:
+            if plane_b.id != plane_a.id:
+                model.Add(x[plane_a.id] >= x[plane_b.id] + airland.get_sep_time(plane_b.id, plane_a.id))\
+                    .OnlyEnforceIf(lands_immed_before[plane_b.id][plane_a.id])
 
     # Constraints
     for plane in P:
@@ -132,7 +151,6 @@ def solve_CP_airland(airland):
     for plane in P:
         objective_expr += alpha[plane.id] * plane.PCb
         objective_expr += beta[plane.id] * plane.PCa
-
     model.Minimize(objective_expr)
 
     # Solve the problem

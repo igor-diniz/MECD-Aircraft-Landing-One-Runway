@@ -19,7 +19,7 @@ class FileReader:
             line_times = file.readline().split()
 
             for plane_j, val in enumerate(line_times):
-                airland.register_sep_time(plane_id, n + plane_j, sep_time=float(val))
+                airland.register_sep_time(plane_id, n + plane_j, sep_time=int(val))
             
             n += len(line_times)
 
