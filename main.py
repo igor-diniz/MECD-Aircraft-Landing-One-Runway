@@ -1,6 +1,7 @@
 from file_reader import FileReader
 import os
 import re
+import math
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
@@ -109,49 +110,69 @@ def solve_CP_airland(airland):
 
     ############ Variables ###########
     # Actual landing time for each plane
-    x = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
+    t = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
+    model.AddAllDifferent(t)
 
-    # Difference to the target time from the earlier time for each plane
-    alpha = [model.NewIntVar(0, plane.T - plane.E, f'alpha_{plane.id}') for plane in P]
+    # Cost of each landing time for each arrived plane
+    cost = [model.NewIntVar(0, cp_model.INT32_MAX, f'cost_{plane.id}') for plane in P]
 
-    # Difference to the target time from the latest time for each plane
-    beta = [model.NewIntVar(0, plane.L - plane.T, f'beta_{plane.id}') for plane in P]
-
-    # If plane i lands immediately before plane j for each plane
-    lands_immed_before = [[model.NewBoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
+    # If plane i lands before plane j for each plane
+    lands_before = [[model.NewBoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
+    before_target = [model.NewBoolVar(f'bt_{plane.id}') for plane in P]
+
+    # Cases where obviously planes_i lands before planes_j without waiting sep time
+    W = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and plane_i.L < plane_j.E and
+         plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id) <= plane_j.E]
     
-    # Each plane, except the first one, has only one antecedent
-    for plane_b in P:
-        model.AddAtMostOne(lands_immed_before[plane_b.id][plane_a.id] for plane_a in P if plane_a.id != plane_b.id)
+    # Cases where obviously planes_i lands before planes_j but waiting sep time
+    V = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and
+         plane_i.L < plane_j.E < plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id)]
+    
+    # Set boolean variables to true in W and V cases
+    for plane_i, plane_j in W + V:
+        model.Add(lands_before[plane_i.id][plane_j.id] == 1)
+        model.Add(lands_before[plane_j.id][plane_i.id] == 0)
 
-    #
-    for plane_b in P:
-        for plane_a in P:
-            if plane_b != plane_a and plane_b.E > plane_a.L:
-                model.Add(lands_immed_before[plane_b.id][plane_a.id] == 0)
+    # Set boolean variables to true in W and V cases
+    for plane_i, plane_j in W + V:
+        model.Add(lands_before[plane_i.id][plane_j.id] == 1)
+        model.Add(lands_before[plane_j.id][plane_i.id] == 0)
 
+    # Add restriction to wait sep time for the V cases
+    for plane_i, plane_j in V:
+        model.Add(t[plane_j.id] >= t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
 
-    # Add restriction to wait sep time for sequence of planes
-    for plane_b in P:
-        for plane_a in P:
-            if plane_b.id != plane_a.id:
-                model.Add(x[plane_a.id] >= x[plane_b.id] + airland.get_sep_time(plane_b.id, plane_a.id))\
-                    .OnlyEnforceIf(lands_immed_before[plane_b.id][plane_a.id])
-
-    # Constraints
+    # Cases where landing time window are overlaped
+    U = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and
+         (plane_j.E <= plane_i.E <= plane_j.L or plane_j.E <= plane_i.L <= plane_j.L or
+          plane_i.E <= plane_j.E <= plane_i.L or plane_i.E <= plane_j.L <= plane_i.L)]
+    
+    # Calculate costs based on landing time
     for plane in P:
-        model.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
-        model.Add(alpha[plane.id] >= plane.T - x[plane.id])
-        model.Add(beta[plane.id] >= x[plane.id] - plane.T)
-        model.Add(x[plane.id] >= plane.A + airland.freeze_time)
+        model.Add(cost[plane.id] == plane.PCb * (plane.T - t[plane.id])).OnlyEnforceIf(before_target[plane.id])
+        model.Add(cost[plane.id] == plane.PCa * (t[plane.id] - plane.T)).OnlyEnforceIf(before_target[plane.id].Not())
+    
+    # Add mutual exclusive constraint for landing before
+    # plane_i lands before plane j XOR the other way around 
+    for plane_i, plane_j in U:
+        if plane_i.id < plane_j.id:
+            model.AddImplication(lands_before[plane_j.id][plane_i.id].Not(), lands_before[plane_i.id][plane_j.id])
+
+    # Assert separation time constraint
+    for plane_i, plane_j in U:
+        if plane_i.id != plane_j.id:
+            model.Add(t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) <= t[plane_j.id]).\
+                OnlyEnforceIf(lands_before[plane_i.id][plane_j.id])
+            model.Add(t[plane_j.id] + airland.get_sep_time(plane_j.id, plane_i.id) <= t[plane_i.id]).\
+                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])
+                
 
     # Objective Function
-    objective_expr = model.NewIntVar(0, 0, 'objective_expr')  # Create a linear expression
-    for plane in P:
-        objective_expr += alpha[plane.id] * plane.PCb
-        objective_expr += beta[plane.id] * plane.PCa
-    model.Minimize(objective_expr)
+    model.Minimize(sum(cost))
 
     # Solve the problem
     solver = cp_model.CpSolver()
@@ -161,7 +182,7 @@ def solve_CP_airland(airland):
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
         print('Objective Value =', solver.ObjectiveValue())
         for plane in P:
-            plane.actual_land_time = x[plane.id].solution_value()
+            plane.actual_land_time = t[plane.id].solution_value()
         
         P.sort(key = lambda x: x.actual_land_time)
         print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
