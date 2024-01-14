@@ -85,5 +85,5 @@ class Airland:
             for t in range(int(self.planes[i-1].E), int(self.planes[i-1].L + 1)):
                 for r in runways_range:
                     if x[i, t, r].value() == 1:
-                        self.planes[i-1].landing_time = t
+                        self.planes[i-1].actual_land_time = t
                         print(f"Plane {i} lands at time {t} on runway {r}")
