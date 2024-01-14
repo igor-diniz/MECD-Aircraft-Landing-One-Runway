@@ -9,6 +9,8 @@ class FileReader:
     def __read_plane_profile(self, file, plane_id, airland):
         plane_profile = file.readline().split()
         plane_profile = list(map(int, plane_profile[:4])) + list(map(float, plane_profile[4:]))
+        plane_profile[-1] = plane_profile[-1] * 100     # Convert PCb to int
+        plane_profile[-2] = plane_profile[-2] * 100     # Convert PCa to int
         plane_profile = list(map(int, plane_profile))
         plane = Plane(plane_id, airland.id, *plane_profile)
         airland.register_plane(plane)

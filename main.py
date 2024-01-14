@@ -1,9 +1,7 @@
 from file_reader import FileReader
 import os
 import re
-import math
 from ortools.linear_solver import pywraplp
-from ortools.constraint_solver import pywrapcp
 from ortools.sat.python import cp_model
 
 
@@ -73,7 +71,7 @@ def solve_MIP_airland(airland):
         solver.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
         solver.Add(alpha[plane.id] >= plane.T - x[plane.id])
         solver.Add(beta[plane.id] >= x[plane.id] - plane.T)
-        solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
+        #solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
 
     for plane_i in P:
         for plane_j in P:
@@ -92,7 +90,8 @@ def solve_MIP_airland(airland):
 
     # Display the results
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
-        print('Objective Value =', objective.Value())
+        print('Objective Value =', objective.Value() // 100)    # (// 100) induces PCa and PCb
+                                                                # to their original values
         for plane in P:
             plane.actual_land_time = x[plane.id].solution_value()
         
@@ -111,13 +110,13 @@ def solve_CP_airland(airland):
 
     ############ Variables ###########
     # Actual landing time for each plane
-    t = [model.NewIntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
+    t = [model.NewIntVar(plane.E, plane.L, f't_{plane.id}') for plane in P]
 
     # Cost of each landing time for each arrived plane
     cost = [model.NewIntVar(0, cp_model.INT32_MAX, f'cost_{plane.id}') for plane in P]
 
     # If plane i lands before plane j for each plane
-    lands_before = [[model.NewBoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
+    lands_before = [[model.NewBoolVar(f'lb_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
 
     # Cases where obviously planes_i lands before planes_j without waiting sep time
@@ -170,8 +169,7 @@ def solve_CP_airland(airland):
             model.Add(t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) <= t[plane_j.id]).\
                 OnlyEnforceIf(lands_before[plane_i.id][plane_j.id])
             model.Add(t[plane_j.id] + airland.get_sep_time(plane_j.id, plane_i.id) <= t[plane_i.id]).\
-                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])
-                
+                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])          
 
     # Objective Function
     model.Minimize(sum(cost))
@@ -182,7 +180,7 @@ def solve_CP_airland(airland):
 
     # Display the results
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        print('Objective Value =', solver.ObjectiveValue())
+        print('Objective Value =', solver.ObjectiveValue() // 100)
         for plane in P:
             plane.actual_land_time = solver.Value(t[plane.id])
         
@@ -196,9 +194,15 @@ def solve_CP_airland(airland):
 
 if __name__ == "__main__":
     airlands = setup_airlands()
-
-    for airland in airlands.values():
+    for airland1 in airlands.values():
         print("###### MIP ######")
-        solve_MIP_airland(airland)
+        solve_MIP_airland(airland1)
+    
+    # Reset airlands
+    airlands = setup_airlands()
+
+    for airland2 in airlands.values():
         print("###### CP ######")
-        solve_CP_airland(airland)
+        solve_CP_airland(airland2)
+
+    
