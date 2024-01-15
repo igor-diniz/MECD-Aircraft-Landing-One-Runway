@@ -10,16 +10,29 @@ These instructions will help you set up and run your Python project using the pr
 Make sure you have the following installed on your machine:
 
 - [Python](https://www.python.org/)
-- [Make](https://www.gnu.org/software/make/) (for Linux; optional on Windows)
+- [pip](https://pip.pypa.io/en/stable/installation/)
 
-### Installation
-
-```
-make install
-```
-
-### Running
+### Set up a virtual environment for the project
+Create a virtual environment for the project within the project working directory:
 
 ```
-make run
+python3 -m venv venv
+```
+
+Activate the environment created before:
+
+```
+source venv/bin/activate
+```
+
+### Install python requirements
+
+```
+pip install -r requirements.txt
+```
+
+### Run the project
+
+```
+./venv/bin/python main.py
 ```

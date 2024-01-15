@@ -1,2 +1,4 @@
 ortools==9.8.3296
 pandas==2.1.4
+numpy==1.26.3
+virtualenv==20.25.0

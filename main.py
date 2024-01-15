@@ -7,7 +7,6 @@ from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 from copy import deepcopy
 import tracemalloc
-import matplotlib.pyplot as plt
 
 def setup_airlands():
     """ Reads and setup all airlands and stores them as dictionary """
