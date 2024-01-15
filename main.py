@@ -1,10 +1,15 @@
 from file_reader import FileReader
 import os
 import re
+import time
+import pandas as pd
 from ortools.linear_solver import pywraplp
-
+from ortools.sat.python import cp_model
+from copy import deepcopy
+import tracemalloc
 
 def setup_airlands():
+    """ Reads and setup all airlands and stores them as dictionary """
     workdir = os.getcwd()
     datasets_dir = os.path.join(workdir, "datasets")
     airlands_files = os.listdir(datasets_dir)
@@ -18,7 +23,7 @@ def setup_airlands():
 
 
 def solve_MIP_airland(airland):
-    solver = pywraplp.Solver.CreateSolver('SCIP')
+    solver = pywraplp.Solver.CreateSolver('SAT')
     P = airland.get_planes()  # Set of planes
 
     ############ Variables ###########
@@ -32,46 +37,56 @@ def solve_MIP_airland(airland):
     beta = [solver.IntVar(0, plane.L - plane.T, f'beta_{plane.id}') for plane in P]
 
     # If plane i lands before plane j for each plane
-    delta = [[solver.BoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
+    lands_before = [[solver.BoolVar(f'delta_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
              for plane_i in P]
 
+
+    ############ Preprocessing ###########
+    # Cases where obviously planes_i lands before planes_j without waiting sep time
     W = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and plane_i.L < plane_j.E and
          plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id) <= plane_j.E]
-
+    
+    # Cases where obviously planes_i lands before planes_j but waiting sep time
     V = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and
          plane_i.L < plane_j.E < plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id)]
+    
+    # Set boolean variables to true in W and V cases
+    for plane_i, plane_j in W + V:
+        solver.Add(lands_before[plane_i.id][plane_j.id] == 1)
+        solver.Add(lands_before[plane_j.id][plane_i.id] == 0)
 
+    # Add restriction to wait sep time for the V cases
+    for plane_i, plane_j in V:
+        solver.Add(x[plane_j.id] >= x[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
+
+
+    ####### To solver deal ########
+    # Cases where landing time window are overlaped
     U = [(plane_i, plane_j) for plane_i in P for plane_j in P
          if plane_i.id != plane_j.id and
          (plane_j.E <= plane_i.E <= plane_j.L or plane_j.E <= plane_i.L <= plane_j.L or
           plane_i.E <= plane_j.E <= plane_i.L or plane_i.E <= plane_j.L <= plane_i.L)]
 
-    for plane_i, plane_j in W + V:
-        delta[plane_i.id][plane_j.id] = 1
-
-    for plane_i, plane_j in V:
-        solver.Add(x[plane_j.id] >= x[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
-
+    # Add mutual exclusive restrictions for the U cases
     for plane_i, plane_j in U:
-        solver.Add(x[plane_j.id] >= x[plane_i.id] +
-                   airland.get_sep_time(plane_i.id, plane_j.id) * delta[plane_i.id][plane_j.id] -
-                   (plane_i.L - plane_j.E) * delta[plane_j.id][plane_i.id])
+        solver.Add(x[plane_j.id] >= x[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) * lands_before[plane_i.id][plane_j.id] - 
+                   (plane_i.L - plane_j.E) * lands_before[plane_j.id][plane_i.id])
 
-    # Constraints
+    # Complementary Constraints
     for plane in P:
         solver.Add(x[plane.id] == plane.T - alpha[plane.id] + beta[plane.id])
         solver.Add(alpha[plane.id] >= plane.T - x[plane.id])
-        solver.Add(0 <= alpha[plane.id] <= plane.T - plane.E)
         solver.Add(beta[plane.id] >= x[plane.id] - plane.T)
-        solver.Add(0 <= beta[plane.id] <= plane.L - plane.T)
-        solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
+
+        # This constraint is referrenced in the problem, but makes airland 5 and 6 unfeasible if active
+        # solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
 
     for plane_i in P:
         for plane_j in P:
             if plane_i.id != plane_j.id:
-                solver.Add(delta[plane_i.id][plane_j.id] + delta[plane_j.id][plane_i.id] == 1)
+                solver.Add(lands_before[plane_i.id][plane_j.id] + lands_before[plane_j.id][plane_i.id] == 1)
 
     # Objective Function
     objective = solver.Objective()
@@ -82,18 +97,161 @@ def solve_MIP_airland(airland):
 
     # Solve the problem
     status = solver.Solve()
+
     # Display the results
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
-        print('Objective Value =', objective.Value())
+        print('Objective Value =', objective.Value() // 100)    # (// 100) induces PCa and PCb
+                                                                # to their original values
         for plane in P:
-            print(f'Plane {plane.id}: Landing time = {x[plane.id].solution_value()}')
+            plane.actual_land_time = x[plane.id].solution_value()
+        
+        P.sort(key = lambda x: x.actual_land_time)
+        print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
+
     else:
-        print('The problem does not have an optimal solution.')
+        print('The problem does not have neither optimal nor feasible solution.')
+    return objective.Value() // 100
 
 
+def solve_CP_airland(airland):
+    model = cp_model.CpModel()
+    P = airland.get_planes()  # Set of planes
+
+    ############ Variables ###########
+    # Actual landing time for each plane
+    t = [model.NewIntVar(plane.E, plane.L, f't_{plane.id}') for plane in P]
+
+    # Cost of each landing time for each arrived plane
+    cost = [model.NewIntVar(0, cp_model.INT32_MAX, f'cost_{plane.id}') for plane in P]
+
+    # If plane i lands before plane j for each plane
+    lands_before = [[model.NewBoolVar(f'lb_{plane_i.id}_{plane_j.id}') if plane_i.id != plane_j.id else 0 for plane_j in P]
+             for plane_i in P]
+
+
+    ############ Preprocessing ###########
+    # Cases where obviously planes_i lands before planes_j without waiting sep time
+    W = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and plane_i.L < plane_j.E and
+         plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id) <= plane_j.E]
+    
+    # Cases where obviously planes_i lands before planes_j but waiting sep time
+    V = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and
+         plane_i.L < plane_j.E < plane_i.L + airland.get_sep_time(plane_i.id, plane_j.id)]
+    
+    # Set boolean variables to true in W and V cases
+    for plane_i, plane_j in W + V:
+        model.Add(lands_before[plane_i.id][plane_j.id] == 1)
+        model.Add(lands_before[plane_j.id][plane_i.id] == 0)
+
+    # Set boolean variables to true in W and V cases
+    for plane_i, plane_j in W + V:
+        model.Add(lands_before[plane_i.id][plane_j.id] == 1)
+        model.Add(lands_before[plane_j.id][plane_i.id] == 0)
+
+    # Add restriction to wait sep time for the V cases
+    for plane_i, plane_j in V:
+        model.Add(t[plane_j.id] >= t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
+
+
+    ####### To solver deal ########
+    # Cases where landing time window are overlaped
+    U = [(plane_i, plane_j) for plane_i in P for plane_j in P
+         if plane_i.id != plane_j.id and
+         (plane_j.E <= plane_i.E <= plane_j.L or plane_j.E <= plane_i.L <= plane_j.L or
+          plane_i.E <= plane_j.E <= plane_i.L or plane_i.E <= plane_j.L <= plane_i.L)]
+    
+    # Add mutual exclusive constraint for landing before
+    # plane_i lands before plane j XOR the other way around 
+    for plane_i, plane_j in U:
+        if plane_i.id != plane_j.id:
+            model.AddBoolXOr(lands_before[plane_i.id][plane_j.id], lands_before[plane_j.id][plane_i.id])
+    
+    # Assert separation time constraint
+    for plane_i, plane_j in U:
+        if plane_i.id != plane_j.id:
+            model.Add(t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id) <= t[plane_j.id]).\
+                OnlyEnforceIf(lands_before[plane_i.id][plane_j.id])
+            model.Add(t[plane_j.id] + airland.get_sep_time(plane_j.id, plane_i.id) <= t[plane_i.id]).\
+                OnlyEnforceIf(lands_before[plane_j.id][plane_i.id])
+
+
+    # Calculate costs based on landing time for each plane
+    for plane in P:
+        diff1 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff1')
+        model.AddMaxEquality(diff1, [0, plane.T - t[plane.id]])
+
+        diff2 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff2')
+        model.AddMaxEquality(diff2, [0, t[plane.id] - plane.T])
+
+        model.Add(cost[plane.id] == plane.PCb * diff1 + plane.PCa * diff2)        
+
+    # Objective Function
+    model.Minimize(sum(cost))
+
+    # Solve the problem
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
+    # Display the results
+    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+        print('Objective Value =', solver.ObjectiveValue() // 100)
+        for plane in P:
+            plane.actual_land_time = solver.Value(t[plane.id])
+        
+        P.sort(key = lambda x: x.actual_land_time)
+        print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
+    else:
+        print('The problem does not have neither optimal nor feasible solution.')
+
+    return solver
 if __name__ == "__main__":
     airlands = setup_airlands()
 
-    # Just a showcase with the airland 1
-    airland1 = airlands[3]
-    solve_MIP_airland(airland1)
+    resultados = []
+
+    tracemalloc.start()
+
+    for indice, airland in airlands.items():
+        # Medindo o tempo e uso de memória para a função solve_MIP_airland
+        inicio_mip = time.time()
+        airland_mip = deepcopy(airland)
+        mip_obj_value = solve_MIP_airland(airland_mip)
+        fim_mip = time.time()
+        tempo_mip = fim_mip - inicio_mip
+        _, uso_memoria_mip = tracemalloc.get_traced_memory()
+
+        tracemalloc.clear_traces()
+
+        # Medindo o tempo e uso de memória para a função solve_CP_airland
+        inicio_cp = time.time()
+        airland_cp = deepcopy(airland)
+        cp_solver = solve_CP_airland(airland_cp)
+        fim_cp = time.time()
+        tempo_cp = fim_cp - inicio_cp
+        _, uso_memoria_cp = tracemalloc.get_traced_memory()
+
+        tracemalloc.clear_traces()
+
+        resultados.append({
+            'Airland': indice,
+            'MIP_obj_value': mip_obj_value,
+            'MIP_execution_time': tempo_mip,
+            'MIP_memory_use': uso_memoria_mip,
+            'CP_obj_value': cp_solver.ObjectiveValue() // 100,
+            'CP_execution_time': tempo_cp,
+            'CP_memory_use': uso_memoria_cp,
+            'CP_status': cp_solver.StatusName(),
+            'CP_propagations': cp_solver.NumBranches(),
+            'CP_conflicts': cp_solver.NumConflicts(),
+        })
+        if indice == 8:
+            break
+
+    tracemalloc.stop()
+
+    # Criando e exibindo a tabela
+    df_resultados = pd.DataFrame(resultados)
+    print(df_resultados)
+    df_resultados.to_csv('resultados.csv', index=False)

@@ -1,5 +1,4 @@
-import networkx as nx
-from pulp import LpProblem, LpVariable, LpMinimize, lpSum
+import numpy as np
 
 class Airland:
     def __init__(self, id, n_planes, freeze_time):
@@ -8,20 +7,20 @@ class Airland:
         self.n_planes = n_planes
         self.freeze_time = freeze_time
         self.planes = []
-        self.Gst = nx.Graph()       # Gst - graph of separated times between landings
-        self.Gst.add_nodes_from(range(1, n_planes))
+        self.sep_times = np.zeros((n_planes, n_planes), dtype=int)
+    
 
     def register_plane(self, plane):
         self.planes.append(plane)
 
     def register_sep_time(self, plane_id1, plane_id2, sep_time):
-        self.Gst.add_edge(plane_id1, plane_id2, sep_time=sep_time)
+        self.sep_times[plane_id1, plane_id2] = sep_time
 
     def get_sep_time(self, plane_id1, plane_id2):
-        return self.Gst[plane_id1][plane_id2]["sep_time"]
+        return self.sep_times[plane_id1, plane_id2]
 
     def get_all_sep_times(self):
-        return self.Gst.edges.data()
+        return self.sep_times
 
     def get_planes(self):
         return self.planes

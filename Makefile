@@ -31,7 +31,7 @@ venv:
 	@echo "Creating virtual environment..."
 	$(PYTHON) -m venv $(VENV)
 
-install: venv
+init: venv
 	@echo "Installing dependencies..."
 	$(VENV_ACTIVATE) && pip install -r $(REQUIREMENTS)
 

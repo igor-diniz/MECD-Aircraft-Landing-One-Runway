@@ -7,18 +7,22 @@ class FileReader:
     
     
     def __read_plane_profile(self, file, plane_id, airland):
-        plane_profile = map(float, file.readline().split())
+        plane_profile = file.readline().split()
+        plane_profile = list(map(int, plane_profile[:4])) + list(map(float, plane_profile[4:]))
+        plane_profile[-1] = plane_profile[-1] * 100     # Convert PCb to int
+        plane_profile[-2] = plane_profile[-2] * 100     # Convert PCa to int
+        plane_profile = list(map(int, plane_profile))
         plane = Plane(plane_id, airland.id, *plane_profile)
         airland.register_plane(plane)
 
 
     def __read_sep_times(self, file, n_planes, plane_id, airland):
-        n = 1
-        while n <= n_planes:
+        n = 0
+        while n < n_planes:
             line_times = file.readline().split()
 
             for plane_j, val in enumerate(line_times):
-                airland.register_sep_time(plane_id, n + plane_j, sep_time=float(val))
+                airland.register_sep_time(plane_id, n + plane_j, sep_time=int(val))
             
             n += len(line_times)
 
@@ -30,9 +34,9 @@ class FileReader:
             n_planes, freeze_time = map(int, f.readline().split())
             airland = Airland(airland_id, n_planes, freeze_time)
             
-            for plane_i in range(n_planes):
-                self.__read_plane_profile(f, plane_i, airland)
-                self.__read_sep_times(f, n_planes, plane_i, airland)
+            for plane_id in range(n_planes):
+                self.__read_plane_profile(f, plane_id, airland)
+                self.__read_sep_times(f, n_planes, plane_id, airland)
         
         return airland
 
