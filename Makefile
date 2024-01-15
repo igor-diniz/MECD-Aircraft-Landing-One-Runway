@@ -42,7 +42,3 @@ clean:
 run:
 	@echo "Running project..."
 	$(VENV_ACTIVATE) && $(PYTHON) main.py
-
-run-pulp:
-	@echo "Running project..."
-	$(VENV_ACTIVATE) && $(PYTHON) pulp_solver.py

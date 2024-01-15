@@ -7,6 +7,7 @@ from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 from copy import deepcopy
 import tracemalloc
+import matplotlib.pyplot as plt
 
 def setup_airlands():
     """ Reads and setup all airlands and stores them as dictionary """
@@ -20,6 +21,24 @@ def setup_airlands():
                 for index, path in enumerate(airlands_files)
                 }
     return airlands
+
+def print_solution(solution, objective_value, airland_id, type):
+    print(f"AIRLAND {airland_id}, {type} SOLUTION")
+    print(f"OBJECTIVE VALUE = {objective_value}")
+
+    plane_data = {
+        'Plane Order': [plane.id for plane in solution],
+        'Appearence Time': [plane.A for plane in solution],
+        'Earliest Time': [plane.E for plane in solution],
+        'Target Time': [plane.T for plane in solution],
+        'Latest Time': [plane.L for plane in solution],
+        'Actual Landing Time': [plane.actual_land_time for plane in solution]
+    }
+
+    df_planes = pd.DataFrame(plane_data)
+    df_planes.to_csv(f"generated_data/airland{airland_id}.csv", index=False)
+    print(df_planes)
+    print()
 
 
 def solve_MIP_airland(airland):
@@ -83,8 +102,7 @@ def solve_MIP_airland(airland):
         # This constraint is referrenced in the problem, but makes airland 5 and 6 unfeasible if active
         # solver.Add(x[plane.id] >= plane.A + airland.freeze_time)
 
-    for plane_i in P:
-        for plane_j in P:
+    for plane_i, plane_j in U:
             if plane_i.id != plane_j.id:
                 solver.Add(lands_before[plane_i.id][plane_j.id] + lands_before[plane_j.id][plane_i.id] == 1)
 
@@ -100,17 +118,19 @@ def solve_MIP_airland(airland):
 
     # Display the results
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
-        print('Objective Value =', objective.Value() // 100)    # (// 100) induces PCa and PCb
-                                                                # to their original values
         for plane in P:
             plane.actual_land_time = x[plane.id].solution_value()
         
-        P.sort(key = lambda x: x.actual_land_time)
-        print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
+        solution = P.copy()
+        solution.sort(key = lambda x: x.actual_land_time)
+        print_solution(solution, objective.Value() // 100, airland.id, type="MIP")
+        # Objective value is divided by 100, since costs were multiplied by 100 to
+        # convert float to integer
 
     else:
         print('The problem does not have neither optimal nor feasible solution.')
-    return objective.Value() // 100
+
+    return solver, objective
 
 
 def solve_CP_airland(airland):
@@ -196,62 +216,63 @@ def solve_CP_airland(airland):
 
     # Display the results
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        print('Objective Value =', solver.ObjectiveValue() // 100)
         for plane in P:
             plane.actual_land_time = solver.Value(t[plane.id])
         
-        P.sort(key = lambda x: x.actual_land_time)
-        print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
+        solution = P.copy()
+        solution.sort(key = lambda x: x.actual_land_time)
+        print_solution(solution, solver.ObjectiveValue() // 100, airland.id,  type="CP")
+        # Objective value is divided by 100, since costs were multiplied by 100 to
+        # convert float to integer
+
     else:
         print('The problem does not have neither optimal nor feasible solution.')
 
     return solver
+
 if __name__ == "__main__":
     airlands = setup_airlands()
 
-    resultados = []
+    results = []
 
     tracemalloc.start()
 
-    for indice, airland in airlands.items():
-        # Medindo o tempo e uso de memória para a função solve_MIP_airland
-        inicio_mip = time.time()
+    for index, airland in airlands.items():
+        # Measuring the time and memory usage for the solve_MIP_airland function
         airland_mip = deepcopy(airland)
-        mip_obj_value = solve_MIP_airland(airland_mip)
-        fim_mip = time.time()
-        tempo_mip = fim_mip - inicio_mip
-        _, uso_memoria_mip = tracemalloc.get_traced_memory()
+        mip_solver, mip_objective = solve_MIP_airland(airland_mip)
+        _, memory_usage_mip = tracemalloc.get_traced_memory()
 
         tracemalloc.clear_traces()
 
-        # Medindo o tempo e uso de memória para a função solve_CP_airland
-        inicio_cp = time.time()
+        # Measuring the time and memory usage for the solve_CP_airland function
         airland_cp = deepcopy(airland)
         cp_solver = solve_CP_airland(airland_cp)
-        fim_cp = time.time()
-        tempo_cp = fim_cp - inicio_cp
-        _, uso_memoria_cp = tracemalloc.get_traced_memory()
+        _, memory_usage_cp = tracemalloc.get_traced_memory()
 
         tracemalloc.clear_traces()
 
-        resultados.append({
-            'Airland': indice,
-            'MIP_obj_value': mip_obj_value,
-            'MIP_execution_time': tempo_mip,
-            'MIP_memory_use': uso_memoria_mip,
+        results.append({
+            'Airland': index,
+            'N_planes': len(airland.get_planes()), 
+            'MIP_obj_value': mip_objective.Value() // 100,
+            'MIP_execution_time': mip_solver.wall_time(),       # milliseconds
+            'MIP_memory_usage': memory_usage_mip,
             'CP_obj_value': cp_solver.ObjectiveValue() // 100,
-            'CP_execution_time': tempo_cp,
-            'CP_memory_use': uso_memoria_cp,
+            'CP_execution_time': round(cp_solver.WallTime() * 1000, 2),   # convert to millisecons
+            'CP_memory_usage': memory_usage_cp,
             'CP_status': cp_solver.StatusName(),
             'CP_propagations': cp_solver.NumBranches(),
             'CP_conflicts': cp_solver.NumConflicts(),
         })
-        if indice == 8:
+
+        if index == 8:
             break
 
     tracemalloc.stop()
 
-    # Criando e exibindo a tabela
-    df_resultados = pd.DataFrame(resultados)
-    print(df_resultados)
-    df_resultados.to_csv('resultados.csv', index=False)
+    # Summary of Statistical Results
+    print('\t##################### Summary of KPIs for MIP and CP models ####################')
+    df_stats = pd.DataFrame(results)
+    print(df_stats)
+    df_stats.to_csv('generated_data/stats_results.csv', index=False)
