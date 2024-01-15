@@ -50,10 +50,12 @@ def solve_MIP_airland(airland):
     # Actual landing time for each plane
     x = [solver.IntVar(plane.E, plane.L, f'x_{plane.id}') for plane in P]
 
-    # Difference to the target time from the earlier time for each plane
+    # Difference to the target time from the actual landing time for each plane
+    # if the plane lands before the target time
     alpha = [solver.IntVar(0, plane.T - plane.E, f'alpha_{plane.id}') for plane in P]
 
-    # Difference to the target time from the latest time for each plane
+    # Difference to the target time from the actual landing time for each plane
+    # if the plane lands after the target time
     beta = [solver.IntVar(0, plane.L - plane.T, f'beta_{plane.id}') for plane in P]
 
     # If plane i lands before plane j for each plane
@@ -166,11 +168,6 @@ def solve_CP_airland(airland):
         model.Add(lands_before[plane_i.id][plane_j.id] == 1)
         model.Add(lands_before[plane_j.id][plane_i.id] == 0)
 
-    # Set boolean variables to true in W and V cases
-    for plane_i, plane_j in W + V:
-        model.Add(lands_before[plane_i.id][plane_j.id] == 1)
-        model.Add(lands_before[plane_j.id][plane_i.id] == 0)
-
     # Add restriction to wait sep time for the V cases
     for plane_i, plane_j in V:
         model.Add(t[plane_j.id] >= t[plane_i.id] + airland.get_sep_time(plane_i.id, plane_j.id))
@@ -200,10 +197,10 @@ def solve_CP_airland(airland):
 
     # Calculate costs based on landing time for each plane
     for plane in P:
-        diff1 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff1')
+        diff1 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, f'diff1_{plane.id}')
         model.AddMaxEquality(diff1, [0, plane.T - t[plane.id]])
 
-        diff2 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, 'diff2')
+        diff2 = model.NewIntVar(-cp_model.INT32_MAX, cp_model.INT32_MAX, f'diff2_{plane.id}')
         model.AddMaxEquality(diff2, [0, t[plane.id] - plane.T])
 
         model.Add(cost[plane.id] == plane.PCb * diff1 + plane.PCa * diff2)        
