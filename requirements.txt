@@ -1,0 +1,3 @@
+ortools==9.8.3296
+networkx==3.2.1
+pandas==2.1.4

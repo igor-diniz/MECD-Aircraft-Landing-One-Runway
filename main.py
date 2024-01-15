@@ -1,9 +1,12 @@
 from file_reader import FileReader
 import os
 import re
+import time
+import pandas as pd
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
-
+from copy import deepcopy
+import tracemalloc
 
 def setup_airlands():
     """ Reads and setup all airlands and stores them as dictionary """
@@ -107,8 +110,7 @@ def solve_MIP_airland(airland):
 
     else:
         print('The problem does not have neither optimal nor feasible solution.')
-    
-    print()
+    return objective.Value() // 100
 
 
 def solve_CP_airland(airland):
@@ -200,23 +202,56 @@ def solve_CP_airland(airland):
         
         P.sort(key = lambda x: x.actual_land_time)
         print(list(map(lambda plane: (plane.id, plane.actual_land_time), P)))
-
     else:
         print('The problem does not have neither optimal nor feasible solution.')
-    
-    print()
 
+    return solver
 if __name__ == "__main__":
     airlands = setup_airlands()
-    for airland1 in airlands.values():
-        print("###### MIP ######")
-        solve_MIP_airland(airland1)
-    
-    # Reset airlands
-    airlands = setup_airlands()
 
-    for airland2 in airlands.values():
-        print("###### CP ######")
-        solve_CP_airland(airland2)
+    resultados = []
 
-    
+    tracemalloc.start()
+
+    for indice, airland in airlands.items():
+        # Medindo o tempo e uso de memória para a função solve_MIP_airland
+        inicio_mip = time.time()
+        airland_mip = deepcopy(airland)
+        mip_obj_value = solve_MIP_airland(airland_mip)
+        fim_mip = time.time()
+        tempo_mip = fim_mip - inicio_mip
+        _, uso_memoria_mip = tracemalloc.get_traced_memory()
+
+        tracemalloc.clear_traces()
+
+        # Medindo o tempo e uso de memória para a função solve_CP_airland
+        inicio_cp = time.time()
+        airland_cp = deepcopy(airland)
+        cp_solver = solve_CP_airland(airland_cp)
+        fim_cp = time.time()
+        tempo_cp = fim_cp - inicio_cp
+        _, uso_memoria_cp = tracemalloc.get_traced_memory()
+
+        tracemalloc.clear_traces()
+
+        resultados.append({
+            'Airland': indice,
+            'MIP_obj_value': mip_obj_value,
+            'MIP_execution_time': tempo_mip,
+            'MIP_memory_use': uso_memoria_mip,
+            'CP_obj_value': cp_solver.ObjectiveValue() // 100,
+            'CP_execution_time': tempo_cp,
+            'CP_memory_use': uso_memoria_cp,
+            'CP_status': cp_solver.StatusName(),
+            'CP_propagations': cp_solver.NumBranches(),
+            'CP_conflicts': cp_solver.NumConflicts(),
+        })
+        if indice == 8:
+            break
+
+    tracemalloc.stop()
+
+    # Criando e exibindo a tabela
+    df_resultados = pd.DataFrame(resultados)
+    print(df_resultados)
+    df_resultados.to_csv('resultados.csv', index=False)
