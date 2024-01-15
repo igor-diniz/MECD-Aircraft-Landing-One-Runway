@@ -267,8 +267,8 @@ if __name__ == "__main__":
             'CP_conflicts': cp_solver.NumConflicts(),
         })
 
-        #if index == 8:
-        #    break
+        if index == 8:
+            break
 
     tracemalloc.stop()
 
