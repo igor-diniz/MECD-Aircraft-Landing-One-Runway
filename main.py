@@ -1,7 +1,6 @@
 from file_reader import FileReader
 import os
 import re
-import time
 import pandas as pd
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
@@ -37,14 +36,14 @@ def print_solution(solution, objective_value, airland_id, type):
     }
 
     df_planes = pd.DataFrame(plane_data)
-    df_planes.to_csv(f"generated_data/airland{airland_id}.csv", index=False)
+    df_planes.to_csv(f"generated_data/airland{airland_id}_{type}.csv", index=False)
     print(df_planes)
     print()
 
 
 def solve_MIP_airland(airland):
     solver = pywraplp.Solver.CreateSolver('SAT')
-    P = airland.get_planes()  # Set of planes
+    P = airland.get_planes()    # Set of planes
 
     ############ Variables ###########
     # Actual landing time for each plane
@@ -117,6 +116,7 @@ def solve_MIP_airland(airland):
     objective.SetMinimization()
 
     # Solve the problem
+    solver.set_time_limit(60 * 1000)    # Set timeout (seconds) to solve each airland
     status = solver.Solve()
 
     # Display the results
@@ -210,6 +210,7 @@ def solve_CP_airland(airland):
 
     # Solve the problem
     solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 60     # Set timeout (seconds) to solve each airland
     status = solver.Solve(model)
 
     # Display the results
@@ -253,19 +254,19 @@ if __name__ == "__main__":
         results.append({
             'Airland': index,
             'N_planes': len(airland.get_planes()), 
+            'Solver_status': cp_solver.StatusName(),
             'MIP_obj_value': mip_objective.Value() / 100,
             'MIP_execution_time': mip_solver.wall_time(),       # milliseconds
             'MIP_memory_usage': memory_usage_mip,
             'CP_obj_value': cp_solver.ObjectiveValue() / 100,
             'CP_execution_time': round(cp_solver.WallTime() * 1000, 2),   # convert to millisecons
             'CP_memory_usage': memory_usage_cp,
-            'CP_status': cp_solver.StatusName(),
             'CP_propagations': cp_solver.NumBranches(),
             'CP_conflicts': cp_solver.NumConflicts(),
         })
 
-        if index == 8:
-            break
+        #if index == 8:
+        #    break
 
     tracemalloc.stop()
 

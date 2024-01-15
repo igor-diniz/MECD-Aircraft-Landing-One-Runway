@@ -1,5 +1,6 @@
 from plane import Plane
 from airland import Airland
+import re
 
 class FileReader:
     def __init__(self):
@@ -28,7 +29,7 @@ class FileReader:
 
 
     def read(self, file_path):
-        airland_id = int(file_path.split('.')[0][-1])
+        airland_id = int(re.findall("\d+", file_path.split('.')[0])[0])
 
         with open(file_path) as f:
             n_planes, freeze_time = map(int, f.readline().split())
