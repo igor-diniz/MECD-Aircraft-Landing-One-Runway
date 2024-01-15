@@ -31,7 +31,9 @@ def print_solution(solution, objective_value, airland_id, type):
         'Earliest Time': [plane.E for plane in solution],
         'Target Time': [plane.T for plane in solution],
         'Latest Time': [plane.L for plane in solution],
-        'Actual Landing Time': [plane.actual_land_time for plane in solution]
+        'Actual Landing Time': [plane.actual_land_time for plane in solution],
+        'Cost': [(plane.actual_land_time - plane.T) * plane.PCa / 100  if plane.actual_land_time >= plane.T else (plane.T - plane.actual_land_time) * plane.PCb / 100 for plane in solution]
+
     }
 
     df_planes = pd.DataFrame(plane_data)
@@ -122,7 +124,7 @@ def solve_MIP_airland(airland):
         
         solution = P.copy()
         solution.sort(key = lambda x: x.actual_land_time)
-        print_solution(solution, objective.Value() // 100, airland.id, type="MIP")
+        print_solution(solution, objective.Value() / 100, airland.id, type="MIP")
         # Objective value is divided by 100, since costs were multiplied by 100 to
         # convert float to integer
 
@@ -220,7 +222,7 @@ def solve_CP_airland(airland):
         
         solution = P.copy()
         solution.sort(key = lambda x: x.actual_land_time)
-        print_solution(solution, solver.ObjectiveValue() // 100, airland.id,  type="CP")
+        print_solution(solution, solver.ObjectiveValue() / 100, airland.id,  type="CP")
         # Objective value is divided by 100, since costs were multiplied by 100 to
         # convert float to integer
 
@@ -254,10 +256,10 @@ if __name__ == "__main__":
         results.append({
             'Airland': index,
             'N_planes': len(airland.get_planes()), 
-            'MIP_obj_value': mip_objective.Value() // 100,
+            'MIP_obj_value': mip_objective.Value() / 100,
             'MIP_execution_time': mip_solver.wall_time(),       # milliseconds
             'MIP_memory_usage': memory_usage_mip,
-            'CP_obj_value': cp_solver.ObjectiveValue() // 100,
+            'CP_obj_value': cp_solver.ObjectiveValue() / 100,
             'CP_execution_time': round(cp_solver.WallTime() * 1000, 2),   # convert to millisecons
             'CP_memory_usage': memory_usage_cp,
             'CP_status': cp_solver.StatusName(),
@@ -265,8 +267,8 @@ if __name__ == "__main__":
             'CP_conflicts': cp_solver.NumConflicts(),
         })
 
-        if index == 8:
-            break
+        #if index == 8:
+        #    break
 
     tracemalloc.stop()
 
