@@ -3,7 +3,7 @@
 
 ## Getting Started
 
-These instructions will help you set up and run your Python project using the provided Makefile. The project can be used on both Windows and Linux.
+These instructions will help you set up and run your Python project for Linux OS.
 
 ### Prerequisites
 
