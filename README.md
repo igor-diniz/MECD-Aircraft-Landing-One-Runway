@@ -15,7 +15,7 @@ Make sure you have the following installed on your machine:
 - [virtualenv](https://virtualenv.pypa.io/en/latest/installation.html)
 
 ### Set up a virtual environment for the project
-Create a new virtual environment is optional, but recommended. If you do not want to do it, just install the requirements and run python as usual.  
+Creating a new virtual environment is optional, but recommended. If you do not want to do it, just install the requirements and run python as usual.  
 
 Create a virtual environment for the project within the project working directory:
 
