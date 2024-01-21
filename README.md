@@ -1,5 +1,5 @@
 # Scheduling Aircraft Landings
-
+A paper with a complete description of the problem and the approach used, can be found [here](https://github.com/igor-diniz/MECD-SAAD/blob/main/report/Report.pdf), in the report folder of the source code.
 
 ## Getting Started
 
